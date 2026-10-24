@@ -109,6 +109,13 @@ function assertCompleteRuntimeReferences(schema, references) {
   const visit = (value, root, inheritedBase) => {
     if (!isSchema(value) || seen.has(value)) return;
     seen.add(value);
+    // $dynamicRef (2020-12) and $recursiveRef (2019-09) select their targets
+    // using the runtime dynamic evaluation scope, not only a static $ref
+    // lookup. This producer has only a static source-closure witness. Do not
+    // call the emitted validator source-complete without an independently
+    // qualified dynamic-scope resolver at the correct Code owner.
+    if (Object.hasOwn(value, "$dynamicRef") || Object.hasOwn(value, "$recursiveRef"))
+      throw new TypeError("dynamic runtime JSON Schema reference requires qualified dynamic-scope resolution");
     const base = resolvedBase(value, inheritedBase);
     if (typeof value.$ref === "string") {
       const resolved = resolveReference(value.$ref, root, references, base);

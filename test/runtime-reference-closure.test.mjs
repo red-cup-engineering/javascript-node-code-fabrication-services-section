@@ -216,3 +216,52 @@ if(process.env.SPEC_ARCHITECTURE_SCHEMA_FILE){
   });
 }
 
+
+
+test("a runtime binding refuses dynamically scoped 2020-12 references rather than claiming static source closure",()=>{
+  const candidate=design();
+  candidate.schema.properties.evidence={$dynamicRef:"#original-proof"};
+  for(const format of ["javascript","typescript","declaration"]){
+    assert.throws(()=>renderJsonSchemaModule([candidate,evidence],{
+      format,runtimeBinding,
+    }),/dynamic runtime JSON Schema reference requires qualified dynamic-scope resolution/u);
+  }
+  // A lossy standalone TS projection has no executable runtime binding to
+  // certify; do not change the explicitly documented legacy source view.
+  const lossy=transformJsonSchemaToTypescript(candidate.schema,{typeName:"Design"});
+  assert.match(lossy,/export type Design/u);
+});
+
+test("older 2019-09 recursive references require qualified dynamic-scope handling",()=>{
+  const candidate=design();
+  candidate.schema.properties.evidence={$recursiveRef:"#"};
+  assert.throws(()=>renderJsonSchemaModule([candidate,evidence],{
+    format:"javascript",runtimeBinding,
+  }),/dynamic runtime JSON Schema reference requires qualified dynamic-scope resolution/u);
+});
+
+test("a transitive dependency cannot hide a dynamic reference in nested design inputs",()=>{
+  const nested={
+    ...evidence,
+    schema:{...evidence.schema,$defs:{Evidence:{
+      type:"object",properties:{acceptance:{$dynamicRef:"#qualified-acceptance"}},
+    }}},
+  };
+  assert.throws(()=>renderJsonSchemaModule([design(),nested],{
+    format:"javascript",runtimeBinding,
+  }),/dynamic runtime JSON Schema reference requires qualified dynamic-scope resolution/u);
+});
+
+test("annotation examples do not become false dynamic-reference constraints",()=>{
+  const candidate=design();
+  candidate.schema.examples=[{$dynamicRef:"#sample-only"},{$recursiveRef:"#"}];
+  candidate.schema.default={$dynamicRef:"#not-an-assertion"};
+  const output=renderJsonSchemaModule([candidate,evidence],{
+    format:"javascript",runtimeBinding,
+  });
+  assert.match(output,/designType = defineSchemaType/u);
+  const raw=renderJsonSchemaModule([{...candidate,runtimeName:undefined}],{
+    format:"javascript",
+  });
+  assert.match(raw,/\$dynamicRef/u,"literal-only schema still retains its authored bytes");
+});
